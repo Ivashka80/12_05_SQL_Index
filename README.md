@@ -117,7 +117,7 @@ where date(p.payment_date) = '2005-07-30' and p.customer_id = c.customer_id;
 create index day_of_payment on payment(payment_date);
 ```
 
-Переделан запрос с объединением таблиц. Табилца film не используется.
+Переделан запрос с объединением таблиц. Таблица film не используется.
 
 ```
 SELECT concat(c.last_name, ' ', c.first_name) AS Клиент, SUM(p.amount) as Платеж
