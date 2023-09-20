@@ -75,6 +75,10 @@ where date(p.payment_date) = '2005-07-30' and p.payment_date = r.rental_date and
                             -> Single-row covering index lookup on i using PRIMARY (inventory_id=r.inventory_id)  (cost=250e-6 rows=1) (actual time=0.00135..0.00199 rows=1 loops=642000)
 ```
 
+Старый вариант
+
+<details>
+
 Как понимаю данный запрос выдает платежи людей, взявших в аренду фильмы за определенную дату. И в запросе, на мой взгляд, много лишней информации: например, инвентаризация (inventory_id), дата аренды (rental_date), фильмы (film). Из-за чего исходный запрос у меня получился аж на 16615 милисекунд (16 сек) и прочитанных строк вышло 642000.
 
 Я решил пойти путем не добавления индексов (на что нужно потратить лишнее время), а путем удаления ненужной информации, что было подсказано на вебинаре. 
@@ -105,7 +109,43 @@ where date(p.payment_date) = '2005-07-30' and p.customer_id = c.customer_id;
 
 </details>
 
+### *Новый вариант*
 
+Создан индекс для даты платежа
+
+```
+create index day_of_payment on payment(payment_date);
+```
+
+Переделан запрос с объединением таблиц. Табилца film не используется.
+
+```
+SELECT concat(c.last_name, ' ', c.first_name) AS Клиент, SUM(p.amount) as Платеж
+FROM customer c
+JOIN rental r ON c.customer_id = r.customer_id 
+JOIN payment p ON r.rental_date = p.payment_date 
+join inventory i on i.inventory_id = r.inventory_id 
+where date(p.payment_date) >= '2005-07-30' and date(p.payment_date) < DATE_ADD('2005-07-30', INTERVAL 1 DAY)
+GROUP BY c.customer_id;
+````
+
+Вывод анализа. Скорость обрабоки с индексом стала еще быстрее по сравнению с самым первым моим варинатом.
+
+```
+-> Limit: 200 row(s)  (cost=12152 rows=190) (actual time=1.62..121 rows=200 loops=1)
+    -> Group aggregate: sum(p.amount)  (cost=12152 rows=190) (actual time=1.61..120 rows=200 loops=1)
+        -> Nested loop inner join  (cost=12133 rows=190) (actual time=0.987..120 rows=317 loops=1)
+            -> Nested loop inner join  (cost=8042 rows=187) (actual time=0.174..76.1 rows=7694 loops=1)
+                -> Nested loop inner join  (cost=4021 rows=187) (actual time=0.162..28.1 rows=7694 loops=1)
+                    -> Index scan on c using PRIMARY  (cost=0.0228 rows=7) (actual time=0.0526..0.45 rows=284 loops=1)
+                    -> Index lookup on r using idx_fk_customer_id (customer_id=c.customer_id)  (cost=6.69 rows=26.7) (actual time=0.0356..0.0598 rows=27.1 loops=284)
+                -> Single-row covering index lookup on i using PRIMARY (inventory_id=r.inventory_id)  (cost=0.25 rows=1) (actual time=0.00226..0.00292 rows=1 loops=7694)
+            -> Index lookup on p using day_of_payment (payment_date=r.rental_date), with index condition: ((cast(p.payment_date as date) >= '2005-07-30') and (cast(p.payment_date as date) < <cache>(('2005-07-30' + interval 1 day))))  (cost=0.254 rows=1.02) (actual time=0.00352..0.00357 rows=0.0412 loops=7694)
+```
+
+![image](https://github.com/Ivashka80/12_05_SQL_Index/assets/121082757/898e8418-59cd-49cc-a3c7-907566eb6bb8)
+
+</details>
 
 ---
 
